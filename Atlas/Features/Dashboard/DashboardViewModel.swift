@@ -18,7 +18,7 @@ public class DashboardViewModel: ObservableObject {
         // Initialize with empty or default data
     }
     
-    public func update(with metrics: [CachedHealthMetric]) {
+    public func update(with metrics: [CachedHealthMetric], context: ModelContext) {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         let todayString = formatter.string(from: Date())
@@ -52,8 +52,47 @@ public class DashboardViewModel: ObservableObject {
         // Streak (mocked for now)
         self.streakData = StreakData(currentStreak: 12, longestStreak: 21, completedDaysThisWeek: [1, 2, 4, 5])
         
-        // Workout (mocked for now)
-        self.todaysWorkout = WorkoutSummary(name: "Upper Body Strength", durationMinutes: 45, muscleGroups: ["Chest", "Back", "Arms"], exerciseCount: 6, isCompleted: false)
+        // Updates
+        updateNutrition(context: context)
+        updateWorkout(context: context)
+    }
+    
+    private func updateNutrition(context: ModelContext) {
+        DailyNutritionManager.shared.update(with: context)
+        
+        self.macroData = MacroData(
+            proteinConsumed: DailyNutritionManager.shared.proteinConsumed,
+            proteinTarget: DailyNutritionManager.shared.proteinTarget,
+            carbsConsumed: DailyNutritionManager.shared.carbsConsumed,
+            carbsTarget: DailyNutritionManager.shared.carbsTarget,
+            fatConsumed: DailyNutritionManager.shared.fatConsumed,
+            fatTarget: DailyNutritionManager.shared.fatTarget
+        )
+        self.caloriesConsumed = DailyNutritionManager.shared.caloriesConsumed
+        self.caloriesTarget = DailyNutritionManager.shared.caloriesTarget
+    }
+    
+    private func updateWorkout(context: ModelContext) {
+        do {
+            let repository = WorkoutRepository(context: context)
+            let sessions = try repository.fetchSessions()
+            let calendar = Calendar.current
+            
+            if let todaySession = sessions.first(where: { calendar.isDateInToday($0.startDate) }) {
+                let duration = todaySession.endDate?.timeIntervalSince(todaySession.startDate) ?? 0
+                self.todaysWorkout = WorkoutSummary(
+                    name: todaySession.name,
+                    durationMinutes: Int(duration / 60),
+                    muscleGroups: [],
+                    exerciseCount: todaySession.exercises.count,
+                    isCompleted: todaySession.isCompleted
+                )
+            } else {
+                self.todaysWorkout = nil
+            }
+        } catch {
+            print("Failed to update workout for dashboard: \(error)")
+        }
     }
     
     // MARK: - Computed Properties

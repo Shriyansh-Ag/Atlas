@@ -8,6 +8,9 @@ public struct DashboardView: View {
     
     @StateObject private var viewModel: DashboardViewModel
     
+    @State private var showingActiveWorkout = false
+    @State private var showingWorkoutPlans = false
+    
     // Filter for today's metrics
     @Query(filter: #Predicate<CachedHealthMetric> { metric in
         // A naive filter for simplicity, typically you'd filter by date bounds.
@@ -38,10 +41,10 @@ public struct DashboardView: View {
         }
         .navigationBarHidden(true)
         .onAppear {
-            viewModel.update(with: metrics)
+            viewModel.update(with: metrics, context: modelContext)
         }
         .onChange(of: metrics) { _, newMetrics in
-            viewModel.update(with: newMetrics)
+            viewModel.update(with: newMetrics, context: modelContext)
         }
         .task {
             if HealthPermissionManager().authorizationStatus == .notDetermined {
@@ -49,6 +52,12 @@ public struct DashboardView: View {
             } else {
                 await HealthSyncManager.shared.sync(context: modelContext)
             }
+        }
+        .sheet(isPresented: $showingActiveWorkout) {
+            ActiveWorkoutView()
+        }
+        .sheet(isPresented: $showingWorkoutPlans) {
+            WorkoutPlansView()
         }
     }
     
@@ -207,8 +216,8 @@ public struct DashboardView: View {
                     title: "Rest Day",
                     description: "No workout planned for today. Enjoy your recovery!",
                     icon: "dumbbell.fill",
-                    actionTitle: "Create Workout",
-                    action: { }
+                    actionTitle: "My Plans",
+                    action: { showingWorkoutPlans = true }
                 )
                 .padding(.horizontal, Spacing.medium)
             }
@@ -223,7 +232,7 @@ public struct DashboardView: View {
                 HStack(spacing: Spacing.medium) {
                     QuickActionButton(title: "Log Meal", icon: "fork.knife", color: .orange) { }
                     QuickActionButton(title: "Scan", icon: "barcode.viewfinder", color: .blue) { }
-                    QuickActionButton(title: "Workout", icon: "dumbbell.fill", color: .purple) { }
+                    QuickActionButton(title: "Workout", icon: "dumbbell.fill", color: .purple) { showingActiveWorkout = true }
                     QuickActionButton(title: "Water", icon: "drop.fill", color: .cyan) { }
                     QuickActionButton(title: "Weight", icon: "scalemass.fill", color: .green) { }
                 }

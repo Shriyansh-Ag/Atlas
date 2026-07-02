@@ -11,7 +11,20 @@ public class AtlasDataContainer {
     private init() {
         let schema = Schema([
             UserProfile.self,
-            CachedHealthMetric.self
+            CachedHealthMetric.self,
+            FoodItem.self,
+            MealItem.self,
+            MealLog.self,
+            Recipe.self,
+            RecipeIngredient.self,
+            ExerciseDefinition.self,
+            WorkoutPlan.self,
+            WorkoutPlanDay.self,
+            PlannedExercise.self,
+            PlannedSet.self,
+            WorkoutSession.self,
+            LoggedExercise.self,
+            LoggedSet.self
         ])
         
         let modelConfiguration = ModelConfiguration(

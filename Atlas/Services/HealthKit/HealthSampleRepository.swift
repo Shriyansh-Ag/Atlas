@@ -86,6 +86,23 @@ public final class HealthSampleRepository: Sendable {
         try await healthStore.save(sample)
     }
     
+    public func saveWorkout(startDate: Date, endDate: Date, activeEnergyBurnedKcal: Double?) async throws {
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = .traditionalStrengthTraining
+        
+        var metadata: [String: Any] = [:]
+        
+        let workout: HKWorkout
+        if let kcal = activeEnergyBurnedKcal {
+            let energy = HKQuantity(unit: .kilocalorie(), doubleValue: kcal)
+            workout = HKWorkout(activityType: .traditionalStrengthTraining, start: startDate, end: endDate, duration: endDate.timeIntervalSince(startDate), totalEnergyBurned: energy, totalDistance: nil, metadata: metadata)
+        } else {
+            workout = HKWorkout(activityType: .traditionalStrengthTraining, start: startDate, end: endDate, duration: endDate.timeIntervalSince(startDate), totalEnergyBurned: nil, totalDistance: nil, metadata: metadata)
+        }
+        
+        try await healthStore.save(workout)
+    }
+    
     // MARK: - Helper
     
     private func preferredUnit(for typeIdentifier: HKQuantityTypeIdentifier) -> HKUnit {
