@@ -10,6 +10,7 @@ public final class HealthSyncManager: ObservableObject {
     private let repo = HealthSampleRepository()
     @Published public var isSyncing = false
     @Published public var lastSyncDate: Date? = nil
+    @Published public var lastSyncError: String? = nil
     
     private init() {}
     
@@ -57,9 +58,17 @@ public final class HealthSyncManager: ObservableObject {
         components.hour = 18
         let yesterdayEvening = Calendar.current.date(from: components)!
         
-        if let sleepSamples = try? await repo.fetchSleepAnalysis(from: yesterdayEvening, to: now) {
+        do {
+            let sleepSamples = try await repo.fetchSleepAnalysis(from: yesterdayEvening, to: now)
             let sleepScore = SleepScoreCalculator.calculate(from: sleepSamples)
             save(metric: .sleepScore, value: sleepScore, unit: "score", date: startOfDay, context: context)
+            lastSyncError = nil
+        } catch {
+            // A failed fetch (e.g. denied sleep-data permission) must not be conflated
+            // with "user genuinely has 0 minutes of sleep" — surface it distinctly so the
+            // UI/logs can tell the difference instead of silently showing a 0 score.
+            lastSyncError = "Sleep data unavailable: \(error.localizedDescription)"
+            print("⚠️ Failed to fetch sleep analysis: \(error)")
         }
         
         // Calculate Recovery
@@ -100,7 +109,11 @@ public final class HealthSyncManager: ObservableObject {
             existing.unit = unit
             existing.date = Date() // Update timestamp
         } else {
-            let newMetric = CachedHealthMetric(type: metric, value: value, date: Date(), unit: unit)
+            // Use the same `date` the id/descriptor above were derived from, not a fresh
+            // `Date()` call — otherwise a sync running near local midnight can compute a
+            // different day-string here than the one used for lookup, silently forking
+            // a duplicate row for the same logical day.
+            let newMetric = CachedHealthMetric(type: metric, value: value, date: date, unit: unit)
             context.insert(newMetric)
         }
     }

@@ -17,17 +17,19 @@ public class SleepScoreCalculator {
         let awakeSamples = samples.filter { $0.value == HKCategoryValueSleepAnalysis.awake.rawValue }
         
         let totalSleepMinutes = calculateDuration(for: sleepSamples)
-        let deepSleepMinutes = calculateDuration(for: deepSamples)
-        let remSleepMinutes = calculateDuration(for: remSamples)
         let awakeMinutes = calculateDuration(for: awakeSamples)
         
         // Base score on duration (Target: 8 hours = 480 mins)
         let durationScore = min((totalSleepMinutes / 480.0) * 50, 50)
         
-        // Base score on quality (deep + rem should be ~40% of total)
+        // Base score on quality (deep + rem should be ~40% of total).
+        // Deep and REM intervals are merged together (not summed independently) before
+        // dividing, so overlapping/duplicate stage samples from multiple data sources
+        // can't push the ratio above what totalSleepMinutes actually supports.
         let qualityScore: Double
         if totalSleepMinutes > 0 {
-            let qualityRatio = (deepSleepMinutes + remSleepMinutes) / totalSleepMinutes
+            let qualityMinutes = calculateDuration(for: deepSamples + remSamples)
+            let qualityRatio = qualityMinutes / totalSleepMinutes
             qualityScore = min((qualityRatio / 0.4) * 40, 40)
         } else {
             qualityScore = 0
@@ -36,7 +38,9 @@ public class SleepScoreCalculator {
         // Penalty for waking up a lot
         let awakePenalty = min((awakeMinutes / 60.0) * 10, 10)
         
-        let finalScore = max(0, min(100, durationScore + qualityScore - awakePenalty + 10)) // +10 is base bias
+        // NOTE: no artificial base bias here. The score is the sum of its earned
+        // components only, clamped to [0, 100].
+        let finalScore = max(0, min(100, durationScore + qualityScore - awakePenalty))
         
         return totalSleepMinutes > 60 ? finalScore : 0
     }

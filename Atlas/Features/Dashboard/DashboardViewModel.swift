@@ -32,7 +32,7 @@ public class DashboardViewModel: ObservableObject {
         }
         
         self.healthSnapshot = HealthSnapshot(
-            sleepScore: Int(metricDict[.sleepScore] ?? 0),
+            sleepScore: Int((metricDict[.sleepScore] ?? 0).rounded()),
             steps: Int(metricDict[.steps] ?? 0),
             heartRate: Int(metricDict[.heartRate] ?? 0),
             vo2Max: metricDict[.vo2Max] ?? 0,

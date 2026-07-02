@@ -1,0 +1,96 @@
+diff --git a/Atlas/Features/Dashboard/DashboardViewModel.swift b/Atlas/Features/Dashboard/DashboardViewModel.swift
+index 6550fac..f50cab5 100644
+--- a/Atlas/Features/Dashboard/DashboardViewModel.swift
++++ b/Atlas/Features/Dashboard/DashboardViewModel.swift
+@@ -32,7 +32,7 @@ public class DashboardViewModel: ObservableObject {
+         }
+         
+         self.healthSnapshot = HealthSnapshot(
+-            sleepScore: Int(metricDict[.sleepScore] ?? 0),
++            sleepScore: Int((metricDict[.sleepScore] ?? 0).rounded()),
+             steps: Int(metricDict[.steps] ?? 0),
+             heartRate: Int(metricDict[.heartRate] ?? 0),
+             vo2Max: metricDict[.vo2Max] ?? 0,
+diff --git a/Atlas/Services/Calculators/SleepScoreCalculator.swift b/Atlas/Services/Calculators/SleepScoreCalculator.swift
+index 179539e..9e20e8c 100644
+--- a/Atlas/Services/Calculators/SleepScoreCalculator.swift
++++ b/Atlas/Services/Calculators/SleepScoreCalculator.swift
+@@ -17,17 +17,19 @@ public class SleepScoreCalculator {
+         let awakeSamples = samples.filter { $0.value == HKCategoryValueSleepAnalysis.awake.rawValue }
+         
+         let totalSleepMinutes = calculateDuration(for: sleepSamples)
+-        let deepSleepMinutes = calculateDuration(for: deepSamples)
+-        let remSleepMinutes = calculateDuration(for: remSamples)
+         let awakeMinutes = calculateDuration(for: awakeSamples)
+         
+         // Base score on duration (Target: 8 hours = 480 mins)
+         let durationScore = min((totalSleepMinutes / 480.0) * 50, 50)
+         
+-        // Base score on quality (deep + rem should be ~40% of total)
++        // Base score on quality (deep + rem should be ~40% of total).
++        // Deep and REM intervals are merged together (not summed independently) before
++        // dividing, so overlapping/duplicate stage samples from multiple data sources
++        // can't push the ratio above what totalSleepMinutes actually supports.
+         let qualityScore: Double
+         if totalSleepMinutes > 0 {
+-            let qualityRatio = (deepSleepMinutes + remSleepMinutes) / totalSleepMinutes
++            let qualityMinutes = calculateDuration(for: deepSamples + remSamples)
++            let qualityRatio = qualityMinutes / totalSleepMinutes
+             qualityScore = min((qualityRatio / 0.4) * 40, 40)
+         } else {
+             qualityScore = 0
+@@ -36,7 +38,9 @@ public class SleepScoreCalculator {
+         // Penalty for waking up a lot
+         let awakePenalty = min((awakeMinutes / 60.0) * 10, 10)
+         
+-        let finalScore = max(0, min(100, durationScore + qualityScore - awakePenalty + 10)) // +10 is base bias
++        // NOTE: no artificial base bias here. The score is the sum of its earned
++        // components only, clamped to [0, 100].
++        let finalScore = max(0, min(100, durationScore + qualityScore - awakePenalty))
+         
+         return totalSleepMinutes > 60 ? finalScore : 0
+     }
+diff --git a/Atlas/Services/HealthKit/HealthSyncManager.swift b/Atlas/Services/HealthKit/HealthSyncManager.swift
+index b4e2257..3f32aba 100644
+--- a/Atlas/Services/HealthKit/HealthSyncManager.swift
++++ b/Atlas/Services/HealthKit/HealthSyncManager.swift
+@@ -10,6 +10,7 @@ public final class HealthSyncManager: ObservableObject {
+     private let repo = HealthSampleRepository()
+     @Published public var isSyncing = false
+     @Published public var lastSyncDate: Date? = nil
++    @Published public var lastSyncError: String? = nil
+     
+     private init() {}
+     
+@@ -57,9 +58,17 @@ public final class HealthSyncManager: ObservableObject {
+         components.hour = 18
+         let yesterdayEvening = Calendar.current.date(from: components)!
+         
+-        if let sleepSamples = try? await repo.fetchSleepAnalysis(from: yesterdayEvening, to: now) {
++        do {
++            let sleepSamples = try await repo.fetchSleepAnalysis(from: yesterdayEvening, to: now)
+             let sleepScore = SleepScoreCalculator.calculate(from: sleepSamples)
+             save(metric: .sleepScore, value: sleepScore, unit: "score", date: startOfDay, context: context)
++            lastSyncError = nil
++        } catch {
++            // A failed fetch (e.g. denied sleep-data permission) must not be conflated
++            // with "user genuinely has 0 minutes of sleep" — surface it distinctly so the
++            // UI/logs can tell the difference instead of silently showing a 0 score.
++            lastSyncError = "Sleep data unavailable: \(error.localizedDescription)"
++            print("⚠️ Failed to fetch sleep analysis: \(error)")
+         }
+         
+         // Calculate Recovery
+@@ -100,7 +109,11 @@ public final class HealthSyncManager: ObservableObject {
+             existing.unit = unit
+             existing.date = Date() // Update timestamp
+         } else {
+-            let newMetric = CachedHealthMetric(type: metric, value: value, date: Date(), unit: unit)
++            // Use the same `date` the id/descriptor above were derived from, not a fresh
++            // `Date()` call — otherwise a sync running near local midnight can compute a
++            // different day-string here than the one used for lookup, silently forking
++            // a duplicate row for the same logical day.
++            let newMetric = CachedHealthMetric(type: metric, value: value, date: date, unit: unit)
+             context.insert(newMetric)
+         }
+     }
