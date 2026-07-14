@@ -20,7 +20,7 @@ public struct FoodSearchView: View {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundColor(Color.Atlas.textSecondary)
                     TextField("Search food...", text: $query)
-                        .onChange(of: query) { newValue in
+                        .onChange(of: query) { _, newValue in
                             Task {
                                 await searchService.search(query: newValue)
                             }

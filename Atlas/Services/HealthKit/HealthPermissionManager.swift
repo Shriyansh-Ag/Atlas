@@ -10,8 +10,8 @@ public class HealthPermissionManager: ObservableObject {
     
     private let service: HealthKitService
     
-    public init(service: HealthKitService = .shared) {
-        self.service = service
+    public init(service: HealthKitService? = nil) {
+        self.service = service ?? .shared
         self.updateStatus()
     }
     

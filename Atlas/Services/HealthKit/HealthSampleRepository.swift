@@ -76,6 +76,23 @@ public final class HealthSampleRepository: Sendable {
         }
     }
     
+    public func fetchWorkouts(from startDate: Date, to endDate: Date) async throws -> [HKWorkout] {
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
+        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(sampleType: .workoutType(), predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sortDescriptor]) { _, samples, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                
+                continuation.resume(returning: (samples as? [HKWorkout]) ?? [])
+            }
+            healthStore.execute(query)
+        }
+    }
+    
     // MARK: - Writing
     
     public func saveWeight(kg: Double, date: Date = Date()) async throws {
@@ -90,17 +107,37 @@ public final class HealthSampleRepository: Sendable {
         let configuration = HKWorkoutConfiguration()
         configuration.activityType = .traditionalStrengthTraining
         
-        var metadata: [String: Any] = [:]
+        let builder = HKWorkoutBuilder(healthStore: healthStore, configuration: configuration, device: nil)
         
-        let workout: HKWorkout
-        if let kcal = activeEnergyBurnedKcal {
-            let energy = HKQuantity(unit: .kilocalorie(), doubleValue: kcal)
-            workout = HKWorkout(activityType: .traditionalStrengthTraining, start: startDate, end: endDate, duration: endDate.timeIntervalSince(startDate), totalEnergyBurned: energy, totalDistance: nil, metadata: metadata)
-        } else {
-            workout = HKWorkout(activityType: .traditionalStrengthTraining, start: startDate, end: endDate, duration: endDate.timeIntervalSince(startDate), totalEnergyBurned: nil, totalDistance: nil, metadata: metadata)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            builder.beginCollection(withStart: startDate) { success, error in
+                if let error = error { continuation.resume(throwing: error); return }
+                
+                if let kcal = activeEnergyBurnedKcal, let type = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) {
+                    let energy = HKQuantity(unit: .kilocalorie(), doubleValue: kcal)
+                    let sample = HKQuantitySample(type: type, quantity: energy, start: startDate, end: endDate)
+                    builder.add([sample]) { success, error in
+                        if let error = error { continuation.resume(throwing: error); return }
+                        builder.endCollection(withEnd: endDate) { success, error in
+                            if let error = error { continuation.resume(throwing: error); return }
+                            builder.finishWorkout { workout, error in
+                                if let error = error { continuation.resume(throwing: error); return }
+                                continuation.resume()
+                            }
+                        }
+                    }
+                } else {
+                    builder.endCollection(withEnd: endDate) { success, error in
+                        if let error = error { continuation.resume(throwing: error); return }
+                        builder.finishWorkout { workout, error in
+                            if let error = error { continuation.resume(throwing: error); return }
+                            continuation.resume()
+                        }
+                    }
+                }
+            }
         }
-        
-        try await healthStore.save(workout)
+
     }
     
     // MARK: - Helper

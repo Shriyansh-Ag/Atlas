@@ -18,7 +18,7 @@ public class OpenFoodFactsProvider: FoodProvider {
     
     public func fetchByBarcode(_ barcode: String) async throws -> FoodItem? {
         let urlString = "https://world.openfoodfacts.org/api/v0/product/\(barcode).json"
-        guard let url = URL(string: urlString) else { return nil }
+        guard URL(string: urlString) != nil else { return nil }
         
         // Mocking for now since we don't want to actually block on external network during dev without handling exact schemas
         if barcode == "123456789" {

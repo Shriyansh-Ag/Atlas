@@ -34,6 +34,42 @@ public class WorkoutSessionManager: ObservableObject {
         }
     }
     
+    public func startWorkout(from planDay: WorkoutPlanDay, context: ModelContext) {
+        let sessionName = planDay.plan?.name ?? planDay.name
+        let session = WorkoutSession(name: sessionName)
+        context.insert(session)
+        
+        for plannedEx in planDay.exercises.sorted(by: { $0.order < $1.order }) {
+            if let exDef = plannedEx.exercise {
+                let loggedEx = LoggedExercise(exercise: exDef, order: plannedEx.order)
+                loggedEx.session = session
+                session.exercises.append(loggedEx)
+                
+                for plannedSet in plannedEx.sets.sorted(by: { $0.order < $1.order }) {
+                    let loggedSet = LoggedSet(order: plannedSet.order, reps: plannedSet.targetReps, weight: 0)
+                    loggedSet.loggedExercise = loggedEx
+                    loggedEx.sets.append(loggedSet)
+                }
+            }
+        }
+        
+        do {
+            try context.save()
+            self.activeSession = session
+            self.isWorkoutActive = true
+            self.elapsedTime = 0
+            
+            timer?.invalidate()
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.elapsedTime += 1
+                }
+            }
+        } catch {
+            print("Failed to start workout from plan: \(error)")
+        }
+    }
+    
     public func addExercise(_ exercise: ExerciseDefinition, context: ModelContext) {
         guard let session = activeSession else { return }
         let order = session.exercises.count

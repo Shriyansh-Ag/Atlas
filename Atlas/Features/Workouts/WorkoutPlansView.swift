@@ -3,11 +3,15 @@ import SwiftData
 
 public struct WorkoutPlansView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.presentationMode) private var presentationMode
     @Query(sort: \WorkoutPlan.name) private var plans: [WorkoutPlan]
     
+    @Binding var showingActiveWorkout: Bool
     @State private var showingBuilder = false
     
-    public init() {}
+    public init(showingActiveWorkout: Binding<Bool>) {
+        self._showingActiveWorkout = showingActiveWorkout
+    }
     
     public var body: some View {
         NavigationView {
@@ -26,9 +30,21 @@ public struct WorkoutPlansView: View {
                     List {
                         ForEach(plans) { plan in
                             VStack(alignment: .leading, spacing: Spacing.xSmall) {
-                                Text(plan.name)
-                                    .atlasFont(AtlasTypography.headline())
-                                    .foregroundColor(Color.Atlas.textPrimary)
+                                HStack {
+                                    Text(plan.name)
+                                        .atlasFont(AtlasTypography.headline())
+                                        .foregroundColor(Color.Atlas.textPrimary)
+                                    Spacer()
+                                    Button(action: { startPlan(plan) }) {
+                                        Text("Start")
+                                            .atlasFont(AtlasTypography.caption(weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(Color.Atlas.primary)
+                                            .cornerRadius(12)
+                                    }
+                                }
                                 
                                 let totalExercises = plan.days.reduce(0) { $0 + $1.exercises.count }
                                 Text("\(plan.days.count) days • \(totalExercises) exercises")
@@ -53,6 +69,18 @@ public struct WorkoutPlansView: View {
             }
             .sheet(isPresented: $showingBuilder) {
                 WorkoutBuilderView()
+            }
+        }
+    }
+    
+    private func startPlan(_ plan: WorkoutPlan) {
+        if let firstDay = plan.days.first {
+            WorkoutSessionManager.shared.startWorkout(from: firstDay, context: modelContext)
+            presentationMode.wrappedValue.dismiss()
+            
+            // Allow time for dismiss animation before presenting the active workout sheet from dashboard
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                showingActiveWorkout = true
             }
         }
     }

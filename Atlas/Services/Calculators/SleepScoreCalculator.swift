@@ -57,7 +57,7 @@ public class SleepScoreCalculator {
         
         for i in 1..<sorted.count {
             let current = sorted[i]
-            let last = merged.last!
+            guard let last = merged.last else { continue }
             
             if current.start <= last.end {
                 if current.end > last.end {

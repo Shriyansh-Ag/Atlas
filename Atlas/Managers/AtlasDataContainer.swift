@@ -24,7 +24,12 @@ public class AtlasDataContainer {
             PlannedSet.self,
             WorkoutSession.self,
             LoggedExercise.self,
-            LoggedSet.self
+            LoggedSet.self,
+            AIFoodCorrection.self,
+            AtlasObjective.self,
+            BodyMeasurement.self,
+            ProgressPhoto.self,
+            NotificationPreferences.self
         ])
         
         let modelConfiguration = ModelConfiguration(

@@ -26,21 +26,40 @@ public struct MetricCard: View {
                         Text(title.uppercased())
                             .atlasFont(AtlasTypography.caption(weight: .bold))
                             .foregroundColor(Color.Atlas.textSecondary)
-                    }
-                    
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(value)
-                            .atlasFont(AtlasTypography.largeTitle(weight: .bold))
-                            .foregroundColor(Color.Atlas.textPrimary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
+                    }
+                    
+                    ViewThatFits {
+                        HStack(alignment: .firstTextBaseline, spacing: 2) {
+                            Text(value)
+                                .atlasFont(AtlasTypography.largeTitle(weight: .bold))
+                                .foregroundColor(Color.Atlas.textPrimary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.4)
+                            
+                            Text(unit)
+                                .atlasFont(AtlasTypography.headline())
+                                .foregroundColor(Color.Atlas.textTertiary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
+                        }
                         
-                        Text(unit)
-                            .atlasFont(AtlasTypography.headline())
-                            .foregroundColor(Color.Atlas.textTertiary)
+                        VStack(alignment: .leading, spacing: -4) {
+                            Text(value)
+                                .atlasFont(AtlasTypography.title2(weight: .bold))
+                                .foregroundColor(Color.Atlas.textPrimary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
+                            
+                            Text(unit)
+                                .atlasFont(AtlasTypography.caption())
+                                .foregroundColor(Color.Atlas.textTertiary)
+                                .lineLimit(1)
+                        }
                     }
                 }
-                Spacer()
+                Spacer(minLength: 0)
             }
         }
     }

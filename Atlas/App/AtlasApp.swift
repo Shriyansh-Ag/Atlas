@@ -4,6 +4,11 @@ import SwiftData
 @main
 struct AtlasApp: App {
     @State private var environment = AppEnvironment()
+    @Environment(\.scenePhase) private var scenePhase
+    
+    init() {
+        AtlasBackgroundTaskManager.shared.register()
+    }
     
     var body: some Scene {
         WindowGroup {
@@ -21,6 +26,12 @@ struct AtlasApp: App {
                             ProfileSettingsView()
                         case .healthKitAuthorization:
                             HealthKitAuthorizationView()
+                        case .aiSettings:
+                            AISettingsView()
+                        case .notificationSettings:
+                            NotificationSettingsView()
+                        case .goals:
+                            ObjectiveDashboardView()
                         default:
                             EmptyView()
                         }
@@ -37,6 +48,11 @@ struct AtlasApp: App {
             .environment(\.appEnvironment, environment)
             .environment(\.colorScheme, .dark) // Force dark mode across the app
             .modelContainer(AtlasDataContainer.shared.container)
+            .onChange(of: scenePhase) { oldPhase, newPhase in
+                if newPhase == .background {
+                    AtlasBackgroundTaskManager.shared.scheduleNextRefresh()
+                }
+            }
         }
     }
 }

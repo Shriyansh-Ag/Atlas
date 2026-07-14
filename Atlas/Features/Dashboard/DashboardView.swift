@@ -8,16 +8,12 @@ public struct DashboardView: View {
     
     @StateObject private var viewModel: DashboardViewModel
     
-    @State private var showingActiveWorkout = false
-    @State private var showingWorkoutPlans = false
-    
     // Filter for today's metrics
     @Query(filter: #Predicate<CachedHealthMetric> { metric in
-        // A naive filter for simplicity, typically you'd filter by date bounds.
-        // SwiftData predicates have limitations with Date functions, so often we fetch and filter in memory if needed,
-        // or rely on our unique ID scheme which includes the date string.
         true
     }) private var metrics: [CachedHealthMetric]
+    
+    @Query(sort: \AtlasObjective.targetDate) private var objectives: [AtlasObjective]
     
     @MainActor
     public init() {
@@ -53,12 +49,6 @@ public struct DashboardView: View {
                 await HealthSyncManager.shared.sync(context: modelContext)
             }
         }
-        .sheet(isPresented: $showingActiveWorkout) {
-            ActiveWorkoutView()
-        }
-        .sheet(isPresented: $showingWorkoutPlans) {
-            WorkoutPlansView()
-        }
     }
     
     private var dashboardContent: some View {
@@ -67,8 +57,63 @@ public struct DashboardView: View {
                 topNavigation
                 
                 // SECTION 1 & 8: Summary and Motivation
-                MotivationCard(message: viewModel.motivationalMessage)
+                if !viewModel.dailyInsights.isEmpty {
+                    VStack(spacing: Spacing.small) {
+                        SectionHeader(title: "Today's Coaching")
+                        ForEach(viewModel.dailyInsights) { insight in
+                            InsightCard(insight: insight)
+                        }
+                    }
                     .padding(.horizontal, Spacing.medium)
+                    
+                    if !viewModel.workoutRecommendations.isEmpty || !viewModel.nutritionRecommendations.isEmpty {
+                        VStack(spacing: Spacing.small) {
+                            HStack {
+                                SectionHeader(title: "Coach Says")
+                                Spacer()
+                                AIStatusView(status: .success)
+                            }
+                            
+                            ForEach(viewModel.workoutRecommendations.prefix(1)) { rec in
+                                CoachRecommendationCard(
+                                    icon: "dumbbell.fill",
+                                    iconColor: .purple,
+                                    title: "Workout Coach",
+                                    message: rec.message,
+                                    detail: rec.reasoning,
+                                    confidence: rec.confidence
+                                )
+                            }
+                            
+                            ForEach(viewModel.nutritionRecommendations.prefix(1)) { rec in
+                                CoachRecommendationCard(
+                                    icon: "fork.knife",
+                                    iconColor: .orange,
+                                    title: "Nutrition Coach",
+                                    message: rec.message,
+                                    detail: rec.details
+                                )
+                            }
+                        }
+                        .padding(.horizontal, Spacing.medium)
+                    }
+                } else {
+                    MotivationCard(message: viewModel.motivationalMessage)
+                        .padding(.horizontal, Spacing.medium)
+                }
+                
+                // SECTION 1.5: Today's Focus (Goals)
+                if let topObjective = objectives.first(where: { !$0.isCompleted }) {
+                    VStack(spacing: Spacing.small) {
+                        SectionHeader(title: "Today's Focus")
+                        
+                        let prog = ObjectiveCalculator.calculateProgress(for: topObjective, context: modelContext)
+                        ObjectiveCard(objective: topObjective, currentValue: prog.currentValue, status: prog.status) {
+                            environment.router.push(.goals)
+                        }
+                    }
+                    .padding(.horizontal, Spacing.medium)
+                }
                 
                 // SECTION 2 & 3: Calories & Macros
                 caloriesAndMacrosSection
@@ -172,52 +217,26 @@ public struct DashboardView: View {
     
     private var workoutSection: some View {
         VStack(spacing: Spacing.small) {
-            SectionHeader(title: "Today's Workout")
+            SectionHeader(title: "Today's Workouts")
             
-            if let workout = viewModel.todaysWorkout {
-                GlassCard {
-                    HStack {
-                        VStack(alignment: .leading, spacing: Spacing.xSmall) {
-                            Text(workout.name)
-                                .atlasFont(AtlasTypography.title3())
-                                .foregroundColor(Color.Atlas.textPrimary)
-                            
-                            HStack {
-                                Image(systemName: "clock")
-                                Text("\(workout.durationMinutes) min")
-                                Text("•")
-                                Text("\(workout.exerciseCount) exercises")
-                            }
-                            .atlasFont(AtlasTypography.subheadline())
-                            .foregroundColor(Color.Atlas.textSecondary)
-                            
-                            Text(workout.muscleGroups.joined(separator: ", "))
-                                .atlasFont(AtlasTypography.caption())
-                                .foregroundColor(Color.Atlas.primary)
-                                .padding(.top, 2)
+            if !viewModel.importedWorkouts.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Spacing.medium) {
+                        ForEach(viewModel.importedWorkouts, id: \.uuid) { workout in
+                            ImportedWorkoutCard(workout: workout)
                         }
-                        
-                        Spacer()
-                        
-                        Button(action: {
-                            let impact = UIImpactFeedbackGenerator(style: .medium)
-                            impact.impactOccurred()
-                        }) {
-                            Image(systemName: workout.isCompleted ? "checkmark.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 40))
-                                .foregroundColor(workout.isCompleted ? Color.Atlas.success : Color.Atlas.primary)
-                        }
-                        .disabled(workout.isCompleted)
                     }
+                    .padding(.horizontal, Spacing.medium)
                 }
-                .padding(.horizontal, Spacing.medium)
             } else {
                 EmptyState(
                     title: "Rest Day",
-                    description: "No workout planned for today. Enjoy your recovery!",
+                    description: "No workouts logged today in Apple Health. Enjoy your recovery!",
                     icon: "dumbbell.fill",
-                    actionTitle: "My Plans",
-                    action: { showingWorkoutPlans = true }
+                    actionTitle: "Refresh Data",
+                    action: { 
+                        Task { await HealthSyncManager.shared.sync(context: modelContext) }
+                    }
                 )
                 .padding(.horizontal, Spacing.medium)
             }
@@ -232,7 +251,6 @@ public struct DashboardView: View {
                 HStack(spacing: Spacing.medium) {
                     QuickActionButton(title: "Log Meal", icon: "fork.knife", color: .orange) { }
                     QuickActionButton(title: "Scan", icon: "barcode.viewfinder", color: .blue) { }
-                    QuickActionButton(title: "Workout", icon: "dumbbell.fill", color: .purple) { showingActiveWorkout = true }
                     QuickActionButton(title: "Water", icon: "drop.fill", color: .cyan) { }
                     QuickActionButton(title: "Weight", icon: "scalemass.fill", color: .green) { }
                 }
@@ -245,7 +263,7 @@ public struct DashboardView: View {
         VStack(spacing: Spacing.small) {
             SectionHeader(title: "Health Snapshot")
             
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: Spacing.medium) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: Spacing.medium)], spacing: Spacing.medium) {
                 MetricCard(title: "Sleep", value: "\(viewModel.healthSnapshot.sleepScore)", unit: "score", icon: "bed.double.fill", color: .indigo)
                 MetricCard(title: "Steps", value: "\(viewModel.healthSnapshot.steps)", unit: "steps", icon: "figure.walk", color: .blue)
                 MetricCard(title: "Resting HR", value: "\(viewModel.healthSnapshot.restingHeartRate)", unit: "bpm", icon: "heart.fill", color: .red)
@@ -262,29 +280,58 @@ public struct DashboardView: View {
             SectionHeader(title: "Weekly Activity")
             
             GlassCard {
-                HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: Spacing.xSmall) {
-                        Text("\(viewModel.streakData.currentStreak) Day Streak")
-                            .atlasFont(AtlasTypography.title3())
-                            .foregroundColor(Color.Atlas.primary)
-                        Text("Longest: \(viewModel.streakData.longestStreak) days")
-                            .atlasFont(AtlasTypography.subheadline())
-                            .foregroundColor(Color.Atlas.textSecondary)
-                    }
-                    
-                    Spacer()
-                    
-                    HStack(spacing: 8) {
-                        ForEach(1...7, id: \.self) { day in
-                            VStack(spacing: 4) {
-                                Text(dayName(for: day))
-                                    .atlasFont(AtlasTypography.caption())
-                                    .foregroundColor(Color.Atlas.textSecondary)
-                                Circle()
-                                    .fill(viewModel.streakData.completedDaysThisWeek.contains(day) ? Color.Atlas.primary : Color.Atlas.surface)
-                                    .frame(width: 12, height: 12)
+                ViewThatFits {
+                    HStack(alignment: .bottom) {
+                        VStack(alignment: .leading, spacing: Spacing.xSmall) {
+                            Text("\(viewModel.streakData.currentStreak) Day Streak")
+                                .atlasFont(AtlasTypography.title3())
+                                .foregroundColor(Color.Atlas.primary)
+                                .minimumScaleFactor(0.8)
+                            Text("Longest: \(viewModel.streakData.longestStreak) days")
+                                .atlasFont(AtlasTypography.subheadline())
+                                .foregroundColor(Color.Atlas.textSecondary)
+                                .minimumScaleFactor(0.8)
+                        }
+                        
+                        Spacer(minLength: Spacing.medium)
+                        
+                        HStack(spacing: 8) {
+                            ForEach(1...7, id: \.self) { day in
+                                VStack(spacing: 4) {
+                                    Text(dayName(for: day))
+                                        .atlasFont(AtlasTypography.caption())
+                                        .foregroundColor(Color.Atlas.textSecondary)
+                                    Circle()
+                                        .fill(viewModel.streakData.completedDaysThisWeek.contains(day) ? Color.Atlas.primary : Color.Atlas.surface)
+                                        .frame(width: 12, height: 12)
+                                }
                             }
                         }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: Spacing.medium) {
+                        VStack(alignment: .leading, spacing: Spacing.xSmall) {
+                            Text("\(viewModel.streakData.currentStreak) Day Streak")
+                                .atlasFont(AtlasTypography.title3())
+                                .foregroundColor(Color.Atlas.primary)
+                            Text("Longest: \(viewModel.streakData.longestStreak) days")
+                                .atlasFont(AtlasTypography.subheadline())
+                                .foregroundColor(Color.Atlas.textSecondary)
+                        }
+                        
+                        HStack(spacing: 12) {
+                            ForEach(1...7, id: \.self) { day in
+                                VStack(spacing: 4) {
+                                    Text(dayName(for: day))
+                                        .atlasFont(AtlasTypography.caption())
+                                        .foregroundColor(Color.Atlas.textSecondary)
+                                    Circle()
+                                        .fill(viewModel.streakData.completedDaysThisWeek.contains(day) ? Color.Atlas.primary : Color.Atlas.surface)
+                                        .frame(width: 12, height: 12)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
                     }
                 }
             }
@@ -296,6 +343,78 @@ public struct DashboardView: View {
         let names = ["S", "M", "T", "W", "T", "F", "S"]
         guard index >= 1 && index <= 7 else { return "" }
         return names[index - 1]
+    }
+}
+
+// MARK: - Imported Workout Card
+struct ImportedWorkoutCard: View {
+    let workout: HKWorkout
+    
+    var body: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: Spacing.small) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        // Extract custom name if available in metadata, else use generic type name
+                        Text(workoutName)
+                            .atlasFont(AtlasTypography.headline())
+                            .foregroundColor(Color.Atlas.textPrimary)
+                            .lineLimit(1)
+                        
+                        Text(timeString)
+                            .atlasFont(AtlasTypography.caption())
+                            .foregroundColor(Color.Atlas.textSecondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Image(systemName: "applewatch")
+                        .foregroundColor(Color.Atlas.primary)
+                }
+                
+                HStack(spacing: Spacing.medium) {
+                    VStack(alignment: .leading) {
+                        Text("Duration")
+                            .atlasFont(AtlasTypography.caption())
+                            .foregroundColor(Color.Atlas.textSecondary)
+                        Text("\(Int(workout.duration / 60)) min")
+                            .atlasFont(AtlasTypography.title3())
+                            .foregroundColor(Color.Atlas.textPrimary)
+                    }
+                    
+                    VStack(alignment: .leading) {
+                        Text("Calories")
+                            .atlasFont(AtlasTypography.caption())
+                            .foregroundColor(Color.Atlas.textSecondary)
+                        Text("\(Int(workout.statistics(for: HKQuantityType(.activeEnergyBurned))?.sumQuantity()?.doubleValue(for: .kilocalorie()) ?? 0)) kcal")
+                            .atlasFont(AtlasTypography.title3())
+                            .foregroundColor(Color.Atlas.textPrimary)
+                    }
+                }
+                .padding(.top, Spacing.xSmall)
+            }
+        }
+        .frame(width: 260)
+    }
+    
+    private var workoutName: String {
+        // Map activity type to string
+        switch workout.workoutActivityType {
+        case .traditionalStrengthTraining: return "Strength Training"
+        case .running: return "Running"
+        case .cycling: return "Cycling"
+        case .swimming: return "Swimming"
+        case .walking: return "Walking"
+        case .yoga: return "Yoga"
+        case .highIntensityIntervalTraining: return "HIIT"
+        default: return "Workout"
+        }
+    }
+    
+    private var timeString: String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return "\(formatter.string(from: workout.startDate)) - \(formatter.string(from: workout.endDate))"
     }
 }
 

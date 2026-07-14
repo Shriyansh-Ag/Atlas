@@ -16,10 +16,13 @@ public struct FoodRow: View {
                     Text(food.name)
                         .atlasFont(AtlasTypography.body(weight: .semibold))
                         .foregroundColor(Color.Atlas.textPrimary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
                     if let brand = food.brand {
                         Text(brand)
                             .atlasFont(AtlasTypography.caption())
                             .foregroundColor(Color.Atlas.textSecondary)
+                            .lineLimit(1)
                     }
                 }
                 Spacer()
@@ -58,6 +61,8 @@ public struct MacroBadge: View {
             Text("\(Int(value))g")
                 .atlasFont(AtlasTypography.caption())
                 .foregroundColor(Color.Atlas.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
     }
 }
@@ -107,9 +112,13 @@ private struct FactRow: View {
             Text(title)
                 .atlasFont(AtlasTypography.body(weight: isBold ? .semibold : .regular))
                 .padding(.leading, indent ? Spacing.medium : 0)
-            Spacer()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: Spacing.medium)
             Text(value)
                 .atlasFont(AtlasTypography.body(weight: isBold ? .semibold : .regular))
+                .lineLimit(1)
+                .layoutPriority(1)
         }
         .foregroundColor(Color.Atlas.textPrimary)
     }

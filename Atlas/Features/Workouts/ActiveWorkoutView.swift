@@ -3,7 +3,7 @@ import SwiftData
 
 public struct ActiveWorkoutView: View {
     @Environment(\.modelContext) private var modelContext
-    @StateObject private var sessionManager = WorkoutSessionManager.shared
+    @ObservedObject private var sessionManager = WorkoutSessionManager.shared
     
     @State private var showingExerciseSearch = false
     

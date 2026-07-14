@@ -1,11 +1,19 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 public struct NutritionView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \MealLog.date, order: .reverse) private var logs: [MealLog]
     
     @State private var selectedMealType: MealType? = nil
+    
+    @State private var isAnalyzingImage = false
+    @State private var showingAIResults = false
+    @State private var aiFoodItems: [AIFoodItem] = []
+    
+    @State private var showingRecipeBuilder = false
+    @State private var showingMealPlan = false
     
     private var todayLogs: [MealLog] {
         let startOfDay = Calendar.current.startOfDay(for: Date())
@@ -33,7 +41,57 @@ public struct NutritionView: View {
             
             ScrollView(showsIndicators: false) {
                 VStack(spacing: Spacing.large) {
-                    CustomNavigationBar(title: "Nutrition")
+                    HStack {
+                        CustomNavigationBar(title: "Nutrition")
+                        Spacer()
+                        
+                        if AIConfiguration.shared.enableMealRecognition {
+                            Button(action: {
+                                simulateAIPhoto()
+                            }) {
+                                if isAnalyzingImage {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle())
+                                } else {
+                                    Image(systemName: "camera.viewfinder")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(Color.Atlas.primary)
+                                }
+                            }
+                            .disabled(isAnalyzingImage)
+                            .padding(.trailing, Spacing.medium)
+                        }
+                    }
+                    
+                    // AI Actions
+                    HStack(spacing: Spacing.medium) {
+                        Button(action: { showingRecipeBuilder = true }) {
+                            HStack {
+                                Image(systemName: "sparkles")
+                                Text("Recipes")
+                            }
+                            .atlasFont(AtlasTypography.headline())
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.Atlas.primary)
+                            .cornerRadius(CornerRadius.medium)
+                        }
+                        
+                        Button(action: { showingMealPlan = true }) {
+                            HStack {
+                                Image(systemName: "calendar.badge.clock")
+                                Text("Meal Plan")
+                            }
+                            .atlasFont(AtlasTypography.headline())
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.Atlas.primary)
+                            .cornerRadius(CornerRadius.medium)
+                        }
+                    }
+                    .padding(.horizontal, Spacing.medium)
                     
                     // Macro Summary
                     let m = todayMacros
@@ -75,6 +133,35 @@ public struct NutritionView: View {
         .sheet(item: $selectedMealType) { type in
             NavigationStack {
                 FoodSearchView(mealType: type)
+            }
+        }
+        .sheet(isPresented: $showingAIResults) {
+            MealRecognitionResultView(items: aiFoodItems)
+        }
+        .sheet(isPresented: $showingRecipeBuilder) {
+            RecipeBuilderView()
+        }
+        .sheet(isPresented: $showingMealPlan) {
+            MealPlanView()
+        }
+    }
+    
+    private func simulateAIPhoto() {
+        isAnalyzingImage = true
+        Task {
+            do {
+                // We pass an empty UIImage for mock purposes
+                let items = try await AIEngine.shared.recognizeMeal(from: UIImage())
+                await MainActor.run {
+                    self.aiFoodItems = items
+                    self.isAnalyzingImage = false
+                    self.showingAIResults = true
+                }
+            } catch {
+                await MainActor.run {
+                    self.isAnalyzingImage = false
+                    print("AI Error: \(error)")
+                }
             }
         }
     }

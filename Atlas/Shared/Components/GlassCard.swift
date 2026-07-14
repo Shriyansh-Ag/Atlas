@@ -3,9 +3,11 @@ import SwiftUI
 public struct GlassCard<Content: View>: View {
     private let content: Content
     private let padding: CGFloat
+    private let maxWidth: CGFloat?
     
-    public init(padding: CGFloat = Spacing.medium, @ViewBuilder content: () -> Content) {
+    public init(padding: CGFloat = Spacing.medium, maxWidth: CGFloat? = .infinity, @ViewBuilder content: () -> Content) {
         self.padding = padding
+        self.maxWidth = maxWidth
         self.content = content()
     }
     
@@ -13,6 +15,7 @@ public struct GlassCard<Content: View>: View {
         VStack(alignment: .leading, spacing: Spacing.medium) {
             content
         }
+        .frame(maxWidth: maxWidth, alignment: .leading)
         .padding(padding)
         .glassBackground()
     }

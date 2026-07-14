@@ -31,6 +31,7 @@ public class RestTimerManager: ObservableObject {
         timer = nil
         isRunning = false
         remainingSeconds = 0
+        notifyLiveActivity()
     }
     
     public func addTime(_ seconds: Int) {
@@ -41,9 +42,24 @@ public class RestTimerManager: ObservableObject {
     private func tick() {
         if remainingSeconds > 0 {
             remainingSeconds -= 1
+            notifyLiveActivity()
         } else {
             stop()
             // TODO: Trigger haptics/sound
         }
     }
+    
+    /// Notify the Live Activity of rest timer changes.
+    private func notifyLiveActivity() {
+        // ponytail: only fires if a Live Activity is actually running.
+        // WorkoutActivityManager checks internally.
+        guard WorkoutActivityManager.shared.isActive else { return }
+        // The caller (ActiveWorkoutView) is responsible for building the full state.
+        // We just post a notification so it can react.
+        NotificationCenter.default.post(name: .restTimerDidUpdate, object: nil)
+    }
+}
+
+extension Notification.Name {
+    static let restTimerDidUpdate = Notification.Name("AtlasRestTimerDidUpdate")
 }

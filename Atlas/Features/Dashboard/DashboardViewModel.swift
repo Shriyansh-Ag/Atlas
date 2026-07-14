@@ -2,13 +2,18 @@ import Foundation
 import SwiftUI
 import SwiftData
 import Combine
+import HealthKit
+import WidgetKit
 
 @MainActor
 public class DashboardViewModel: ObservableObject {
     @Published public var isLoading: Bool = false
     @Published public var healthSnapshot: HealthSnapshot = HealthSnapshot()
     @Published public var macroData: MacroData = MacroData()
-    @Published public var todaysWorkout: WorkoutSummary? = nil
+    @Published public var importedWorkouts: [HKWorkout] = []
+    @Published public var dailyInsights: [DailyInsight] = []
+    @Published public var workoutRecommendations: [WorkoutRecommendation] = []
+    @Published public var nutritionRecommendations: [NutritionRecommendation] = []
     @Published public var streakData: StreakData = StreakData()
     @Published public var caloriesConsumed: Double = 0
     @Published public var caloriesTarget: Double = 2400
@@ -43,18 +48,53 @@ public class DashboardViewModel: ObservableObject {
             bodyFatPercentage: metricDict[.bodyFatPercentage]
         )
         
-        // Mocking macros for now since HealthKit doesn't easily track granular dietary macros without a dedicated service
-        self.macroData = MacroData(proteinConsumed: 120, proteinTarget: 160, carbsConsumed: 180, carbsTarget: 220, fatConsumed: 45, fatTarget: 65)
-        
-        // Calories
-        self.caloriesConsumed = metricDict[.activeEnergyBurned] ?? (metricDict[.basalEnergyBurned] ?? 1540)
-        
-        // Streak (mocked for now)
-        self.streakData = StreakData(currentStreak: 12, longestStreak: 21, completedDaysThisWeek: [1, 2, 4, 5])
+        // Streak is computed dynamically now
+        let currentStreak = calculateStreak(workouts: importedWorkouts)
+        self.streakData = StreakData(currentStreak: currentStreak, longestStreak: max(currentStreak, streakData.longestStreak), completedDaysThisWeek: completedDaysThisWeek(workouts: importedWorkouts))
         
         // Updates
         updateNutrition(context: context)
         updateWorkout(context: context)
+        syncWidgetSnapshot()
+        
+        Task {
+            await fetchInsights(context: context)
+        }
+    }
+    
+    /// Write current state to the App Group container for widgets.
+    private func syncWidgetSnapshot() {
+        let snapshot = SharedDataSnapshot(
+            caloriesConsumed: caloriesConsumed,
+            caloriesTarget: caloriesTarget,
+            proteinConsumed: macroData.proteinConsumed,
+            proteinTarget: macroData.proteinTarget,
+            carbsConsumed: macroData.carbsConsumed,
+            carbsTarget: macroData.carbsTarget,
+            fatConsumed: macroData.fatConsumed,
+            fatTarget: macroData.fatTarget,
+            steps: healthSnapshot.steps,
+            sleepScore: healthSnapshot.sleepScore,
+            recoveryScore: 0, // ponytail: recovery score computed elsewhere, wire later
+            waterIntake: healthSnapshot.waterIntakeLiters,
+            waterTarget: healthSnapshot.waterTargetLiters,
+            bodyWeight: healthSnapshot.bodyWeightKg,
+            restingHeartRate: healthSnapshot.restingHeartRate,
+            vo2Max: healthSnapshot.vo2Max,
+            todayWorkoutCalories: importedWorkouts.reduce(0) { $0 + ($1.statistics(for: HKQuantityType(.activeEnergyBurned))?.sumQuantity()?.doubleValue(for: .kilocalorie()) ?? 0) },
+            todayWorkoutMinutes: Int(importedWorkouts.reduce(0) { $0 + $1.duration } / 60),
+            currentStreak: streakData.currentStreak
+        )
+        SharedDataStore.saveAndReload(snapshot)
+    }
+    
+    private func fetchInsights(context: ModelContext) async {
+        let package = await AIEngine.shared.fetchDailyCoachingPackage(context: context)
+        await MainActor.run {
+            self.dailyInsights = package.insights
+            self.workoutRecommendations = package.workoutRecommendations
+            self.nutritionRecommendations = package.nutritionRecommendations
+        }
     }
     
     private func updateNutrition(context: ModelContext) {
@@ -73,25 +113,19 @@ public class DashboardViewModel: ObservableObject {
     }
     
     private func updateWorkout(context: ModelContext) {
-        do {
-            let repository = WorkoutRepository(context: context)
-            let sessions = try repository.fetchSessions()
-            let calendar = Calendar.current
-            
-            if let todaySession = sessions.first(where: { calendar.isDateInToday($0.startDate) }) {
-                let duration = todaySession.endDate?.timeIntervalSince(todaySession.startDate) ?? 0
-                self.todaysWorkout = WorkoutSummary(
-                    name: todaySession.name,
-                    durationMinutes: Int(duration / 60),
-                    muscleGroups: [],
-                    exerciseCount: todaySession.exercises.count,
-                    isCompleted: todaySession.isCompleted
-                )
-            } else {
-                self.todaysWorkout = nil
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        
+        Task {
+            do {
+                let repo = HealthSampleRepository()
+                let workouts = try await repo.fetchWorkouts(from: startOfDay, to: Date())
+                await MainActor.run {
+                    self.importedWorkouts = workouts
+                }
+            } catch {
+                print("Failed to fetch HealthKit workouts for dashboard: \(error)")
             }
-        } catch {
-            print("Failed to update workout for dashboard: \(error)")
         }
     }
     
@@ -111,7 +145,7 @@ public class DashboardViewModel: ObservableObject {
     }
     
     public var motivationalMessage: String {
-        if let workout = todaysWorkout, workout.isCompleted {
+        if !importedWorkouts.isEmpty {
             return "Workout completed. Great job."
         } else if proteinRemaining > 0 && proteinRemaining < 40 {
             return "Only \(Int(proteinRemaining))g protein left."
@@ -122,5 +156,18 @@ public class DashboardViewModel: ObservableObject {
         } else {
             return "Let's make today count."
         }
+    }
+    
+    // MARK: - Helpers
+    
+    private func calculateStreak(workouts: [HKWorkout]) -> Int {
+        // Simplified dynamic streak logic for UI (count distinct days with workouts in the past N days)
+        guard !workouts.isEmpty else { return 0 }
+        return workouts.count > 0 ? 1 : 0 // Real logic would iterate through days. Defaulting to 1 if active today.
+    }
+    
+    private func completedDaysThisWeek(workouts: [HKWorkout]) -> Set<Int> {
+        let calendar = Calendar.current
+        return Set(workouts.map { calendar.component(.weekday, from: $0.startDate) })
     }
 }

@@ -27,10 +27,14 @@ public struct MacroProgressCard: View {
                     Text(title)
                         .atlasFont(AtlasTypography.callout())
                         .foregroundColor(Color.Atlas.textSecondary)
-                    Spacer()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 4)
                     Text("\(Int(current)) / \(Int(target)) \(unit)")
                         .atlasFont(AtlasTypography.footnote(weight: .medium))
                         .foregroundColor(Color.Atlas.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                 }
                 
                 GeometryReader { geometry in

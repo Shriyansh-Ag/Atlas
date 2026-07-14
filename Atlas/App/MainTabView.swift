@@ -32,7 +32,7 @@ public struct MainTabView: View {
                 }
                 .tag(Route.recovery)
             
-            ProgressView()
+            ProgressDashboardView()
                 .tabItem {
                     Label("Progress", systemImage: "chart.xyaxis.line")
                 }

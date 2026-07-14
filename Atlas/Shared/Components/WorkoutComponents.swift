@@ -16,6 +16,8 @@ public struct SetRow: View {
                 .atlasFont(AtlasTypography.callout())
                 .foregroundColor(Color.Atlas.textSecondary)
                 .frame(width: 30)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             
             TextField("lbs", value: $set.weight, format: .number)
                 .keyboardType(.decimalPad)
@@ -56,9 +58,12 @@ public struct ExerciseCard: View {
                     Text(exercise.exercise?.name ?? "Unknown Exercise")
                         .atlasFont(AtlasTypography.headline())
                         .foregroundColor(Color.Atlas.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     Text(exercise.exercise?.primaryMuscle ?? "")
                         .atlasFont(AtlasTypography.subheadline())
                         .foregroundColor(Color.Atlas.textSecondary)
+                        .lineLimit(1)
                 }
                 Spacer()
                 Button(action: {}) {
@@ -113,6 +118,8 @@ public struct RestTimerView: View {
                     .atlasFont(AtlasTypography.headline(weight: .bold))
                     .foregroundColor(Color.Atlas.textPrimary)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 
                 Spacer()
                 

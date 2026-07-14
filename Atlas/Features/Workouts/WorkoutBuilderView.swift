@@ -8,8 +8,8 @@ public struct WorkoutBuilderView: View {
     @State private var planName: String = ""
     @State private var showingExerciseSearch = false
     
-    // For simplicity, building a single day plan
-    @State private var day = WorkoutPlanDay(name: "Day 1", order: 0)
+    // Use draft structs to avoid SwiftData un-inserted relationship bugs
+    @State private var draftExercises: [DraftExercise] = []
     
     public init() {}
     
@@ -27,8 +27,8 @@ public struct WorkoutBuilderView: View {
                         .padding()
                     
                     List {
-                        ForEach(day.exercises) { plannedEx in
-                            PlannedExerciseRow(plannedEx: plannedEx)
+                        ForEach($draftExercises) { $draftEx in
+                            DraftExerciseRow(draftEx: $draftEx)
                             .listRowBackground(Color.Atlas.surface)
                         }
                         .onMove(perform: move)
@@ -57,7 +57,7 @@ public struct WorkoutBuilderView: View {
                     Button("Save") {
                         savePlan()
                     }
-                    .disabled(planName.isEmpty || day.exercises.isEmpty)
+                    .disabled(planName.isEmpty || draftExercises.isEmpty)
                 }
             }
             .sheet(isPresented: $showingExerciseSearch) {
@@ -70,35 +70,42 @@ public struct WorkoutBuilderView: View {
     }
     
     private func addExercise(_ ex: ExerciseDefinition) {
-        let planned = PlannedExercise(exercise: ex, order: day.exercises.count)
-        // Add 3 default sets
-        for i in 0..<3 {
-            let set = PlannedSet(order: i, targetReps: 10)
-            set.plannedExercise = planned
-            planned.sets.append(set)
-        }
-        planned.day = day
-        day.exercises.append(planned)
+        let draftSets = (0..<3).map { DraftSet(order: $0, targetReps: 10) }
+        let draftEx = DraftExercise(exercise: ex, order: draftExercises.count, sets: draftSets)
+        draftExercises.append(draftEx)
     }
     
     private func move(from source: IndexSet, to destination: Int) {
-        day.exercises.move(fromOffsets: source, toOffset: destination)
-        for (index, ex) in day.exercises.enumerated() {
-            ex.order = index
+        draftExercises.move(fromOffsets: source, toOffset: destination)
+        for (index, _) in draftExercises.enumerated() {
+            draftExercises[index].order = index
         }
     }
     
     private func delete(at offsets: IndexSet) {
-        day.exercises.remove(atOffsets: offsets)
-        for (index, ex) in day.exercises.enumerated() {
-            ex.order = index
+        draftExercises.remove(atOffsets: offsets)
+        for (index, _) in draftExercises.enumerated() {
+            draftExercises[index].order = index
         }
     }
     
     private func savePlan() {
         let plan = WorkoutPlan(name: planName)
+        let day = WorkoutPlanDay(name: "Day 1", order: 0)
         day.plan = plan
         plan.days.append(day)
+        
+        for draftEx in draftExercises {
+            let plannedEx = PlannedExercise(exercise: draftEx.exercise, order: draftEx.order)
+            plannedEx.day = day
+            day.exercises.append(plannedEx)
+            
+            for draftSet in draftEx.sets {
+                let plannedSet = PlannedSet(order: draftSet.order, targetReps: draftSet.targetReps)
+                plannedSet.plannedExercise = plannedEx
+                plannedEx.sets.append(plannedSet)
+            }
+        }
         
         modelContext.insert(plan)
         try? modelContext.save()
@@ -107,16 +114,31 @@ public struct WorkoutBuilderView: View {
     }
 }
 
-struct PlannedExerciseRow: View {
-    @Bindable var plannedEx: PlannedExercise
+// MARK: - Draft Models & Views
+
+struct DraftSet: Identifiable {
+    let id = UUID()
+    var order: Int
+    var targetReps: Int
+}
+
+struct DraftExercise: Identifiable {
+    let id = UUID()
+    var exercise: ExerciseDefinition
+    var order: Int
+    var sets: [DraftSet]
+}
+
+struct DraftExerciseRow: View {
+    @Binding var draftEx: DraftExercise
     
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.small) {
-            Text(plannedEx.exercise?.name ?? "")
+            Text(draftEx.exercise.name)
                 .atlasFont(AtlasTypography.headline())
                 .foregroundColor(Color.Atlas.textPrimary)
             
-            ForEach($plannedEx.sets) { $set in
+            ForEach($draftEx.sets) { $set in
                 HStack {
                     Text("Set \(set.order + 1)")
                         .atlasFont(AtlasTypography.caption())
@@ -135,16 +157,15 @@ struct PlannedExerciseRow: View {
                 }
             }
             .onDelete { offsets in
-                plannedEx.sets.remove(atOffsets: offsets)
-                for (index, set) in plannedEx.sets.enumerated() {
-                    set.order = index
+                draftEx.sets.remove(atOffsets: offsets)
+                for (index, _) in draftEx.sets.enumerated() {
+                    draftEx.sets[index].order = index
                 }
             }
             
             Button(action: {
-                let newSet = PlannedSet(order: plannedEx.sets.count, targetReps: 10)
-                newSet.plannedExercise = plannedEx
-                plannedEx.sets.append(newSet)
+                let newSet = DraftSet(order: draftEx.sets.count, targetReps: 10)
+                draftEx.sets.append(newSet)
             }) {
                 Text("+ Add Set")
                     .atlasFont(AtlasTypography.caption(weight: .semibold))
